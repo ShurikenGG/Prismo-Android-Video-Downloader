@@ -231,7 +231,7 @@ object DownloadHub {
             addOption("--windows-filenames")
             addOption("--trim-filenames", "120")
             addOption("--concurrent-fragments", "4")
-            addOption("--extractor-args", youtube:player_client=default,android_vr)
+            addOption("--extractor-args", YT_EXTRACTOR_ARGS)
             addOption("-o", "${dir.absolutePath}/%(title)s.%(ext)s")
 
             val q = item.quality
