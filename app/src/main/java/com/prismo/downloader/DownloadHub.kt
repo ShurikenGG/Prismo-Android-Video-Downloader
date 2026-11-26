@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Process-wide download engine + queue. Survives Activity recreation. */
 object DownloadHub {
-    private const val YT_EXTRACTOR_ARGS = "youtube:player_client=android,web"
+    private const val YT_EXTRACTOR_ARGS = "youtube:player_client=default,android_vr"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val permits = Semaphore(2) // concurrent downloads
     private val initMutex = Mutex()
