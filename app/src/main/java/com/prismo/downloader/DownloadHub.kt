@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Process-wide download engine + queue. Survives Activity recreation. */
 object DownloadHub {
+    private const val YT_EXTRACTOR_ARGS = "youtube:player_client=android,web"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val permits = Semaphore(2) // concurrent downloads
     private val initMutex = Mutex()
@@ -73,6 +74,7 @@ object DownloadHub {
                 addOption("--dump-single-json")
                 addOption("--no-playlist")
                 addOption("--skip-download")
+                addOption("--extractor-args", YT_EXTRACTOR_ARGS)
                 addOption("--no-warnings")
             }
             val out = YoutubeDL.getInstance().execute(request, processId).out
@@ -229,6 +231,7 @@ object DownloadHub {
             addOption("--windows-filenames")
             addOption("--trim-filenames", "120")
             addOption("--concurrent-fragments", "4")
+            addOption("--extractor-args", YT_EXTRACTOR_ARGS)
             addOption("-o", "${dir.absolutePath}/%(title)s.%(ext)s")
 
             val q = item.quality
