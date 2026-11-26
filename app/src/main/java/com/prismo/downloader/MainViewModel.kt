@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,6 +37,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 DownloadHub.ensureInit(getApplication())
             } catch (_: Throwable) {
                 // surfaced through DownloadHub.engine
+            }
+            try {
+                YoutubeDL.getInstance().updateYoutubeDL(
+                    getApplication<Application>(),
+                    YoutubeDL.UpdateChannel._STABLE
+                )
+            } catch (_: Throwable) {
+                // offline or GitHub unreachable: keep the bundled yt-dlp
             }
         }
     }
