@@ -3,9 +3,11 @@ package com.prismo.downloader
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,6 +33,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +44,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -50,6 +57,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -94,7 +105,8 @@ class MainActivity : ComponentActivity() {
                         vm = vm,
                         onDownload = ::startDownload,
                         onOpen = ::openFile,
-                        onShare = ::shareFile
+                        onShare = ::shareFile,
+                        onDelete = ::deleteDownloadedFile
                     )
                 }
             }
@@ -150,6 +162,41 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Permanently deletes the saved file (MediaStore on Android 10+, plain file on older) and drops the card. */
+    private fun deleteDownloadedFile(item: DownloadItem) {
+        val uri = item.fileUri?.let { Uri.parse(it) }
+        if (uri != null) {
+            try {
+                if (uri.scheme == "file") {
+                    val f = File(uri.path.orEmpty())
+                    if (f.exists() && !f.delete()) {
+                        toast("Couldn't delete the file")
+                        return
+                    }
+                    MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), null, null)
+                } else {
+                    var path: String? = null
+                    contentResolver.query(
+                        uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null
+                    )?.use { c ->
+                        if (c.moveToFirst()) path = c.getString(0)
+                    }
+                    contentResolver.delete(uri, null, null)
+                    // Purge any stale Gallery/Files index entry for the deleted path.
+                    path?.let { MediaScannerConnection.scanFile(this, arrayOf(it), null, null) }
+                }
+            } catch (e: SecurityException) {
+                toast("Android blocked deleting this file. Delete it from the Files app instead.")
+                return
+            } catch (e: Exception) {
+                toast("Couldn't delete the file: ${e.message}")
+                return
+            }
+        }
+        vm.remove(item.id)
+        toast("File deleted")
+    }
+
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 }
 
@@ -160,11 +207,32 @@ private fun MainScreen(
     vm: MainViewModel,
     onDownload: () -> Unit,
     onOpen: (DownloadItem) -> Unit,
-    onShare: (DownloadItem) -> Unit
+    onShare: (DownloadItem) -> Unit,
+    onDelete: (DownloadItem) -> Unit
 ) {
     val queue by vm.queue.collectAsState()
     val engine by vm.engine.collectAsState()
     val clipboard = LocalClipboardManager.current
+    var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
+
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete file?") },
+            text = {
+                Text("Delete ${if (target.quality.audioOnly) "audio" else "video"} permanently from device storage?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    onDelete(target)
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -240,7 +308,8 @@ private fun MainScreen(
                 onCancel = { vm.cancel(item.id) },
                 onRemove = { vm.remove(item.id) },
                 onOpen = { onOpen(item) },
-                onShare = { onShare(item) }
+                onShare = { onShare(item) },
+                onDelete = { pendingDelete = item }
             )
         }
     }
@@ -418,13 +487,15 @@ private fun SwitchRow(title: String, subtitle: String, checked: Boolean, enabled
 
 // ───────────────────────── Queue item ─────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DownloadCard(
     item: DownloadItem,
     onCancel: () -> Unit,
     onRemove: () -> Unit,
     onOpen: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -472,9 +543,10 @@ private fun DownloadCard(
                 Status.COMPLETED, Status.CANCELLED -> {}
             }
 
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 when {
                     item.isActive && item.status != Status.SAVING -> OutlinedButton(
@@ -486,6 +558,13 @@ private fun DownloadCard(
                         Button(onClick = onOpen) { Text("Open") }
                         FilledTonalButton(onClick = onShare) { Text("Share") }
                         TextButton(onClick = onRemove) { Text("Remove") }
+                        IconButton(onClick = onDelete) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "Delete file permanently",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
 
                     item.status == Status.FAILED || item.status == Status.CANCELLED ->
